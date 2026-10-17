@@ -115,8 +115,15 @@
 
       } else {
         // Desktop style: Render the game canvas container in a window that can be maximized to fullscreen:
-        fullscreenContainer.style.width = "1280px";
-        fullscreenContainer.style.height = "720px";
+        // ブラウザの窓に合わせて 16:9 のまま縮める（既定のテンプレートは 1280x720 固定で、窓が小さいと切れる）
+        function fitCanvasToWindow() {
+          const footer = 38;
+          const w = Math.max(320, Math.min(window.innerWidth, (window.innerHeight - footer) * 16 / 9));
+          fullscreenContainer.style.width = w + "px";
+          fullscreenContainer.style.height = (w * 9 / 16) + "px";
+        }
+        fitCanvasToWindow();
+        window.addEventListener("resize", fitCanvasToWindow);
       }
 
 
