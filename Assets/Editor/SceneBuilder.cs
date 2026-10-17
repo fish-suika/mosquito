@@ -49,6 +49,16 @@ namespace MosquitoGame.EditorTools
             gm.human = human;
             gm.uiFont = AssetDatabase.LoadAssetAtPath<Font>("Assets/Fonts/NotoSansJP.ttf");   // WebGL では OS のフォントが使えないので、同梱した日本語フォントを使う
 
+            // タイトル画面（UI Canvas + TextMeshPro）。素材は Mosquito/Build Title Assets で作る
+            TitleAssetBuilder.Build();
+            var title = new GameObject("TitleScreen").AddComponent<TitleScreen>();
+            title.gm = gm;
+            title.font = AssetDatabase.LoadAssetAtPath<TMPro.TMP_FontAsset>(TitleAssetBuilder.FontPath);
+            title.logoMat = AssetDatabase.LoadAssetAtPath<Material>(TitleAssetBuilder.LogoMatPath);
+            title.redMat = AssetDatabase.LoadAssetAtPath<Material>(TitleAssetBuilder.RedMatPath);
+            title.softMat = AssetDatabase.LoadAssetAtPath<Material>(TitleAssetBuilder.SoftMatPath);
+            gm.titleScreen = title;
+
             var fb = new GameObject("GameFeedback").AddComponent<GameFeedback>();
             fb.mosquito = mosquito;
             fb.human = human;

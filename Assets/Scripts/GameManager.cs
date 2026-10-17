@@ -19,6 +19,8 @@ namespace MosquitoGame
         public bool startAtTitle = true;
         [Tooltip("画面表示の日本語フォント。空なら Editor では OS のフォントを使う（WebGL では必ず設定する）")]
         public Font uiFont;
+        [Tooltip("UI Canvas + TextMeshPro のタイトル画面。空、または出せないときは従来の OnGUI のタイトルを使う")]
+        public TitleScreen titleScreen;
 
         public GameState State { get; private set; }
         public bool Paused { get; private set; }
@@ -71,6 +73,14 @@ namespace MosquitoGame
         public void AddScore(float v)
         {
             if (State == GameState.Playing) Score += v;
+        }
+
+        /// <summary>開始の入口（ボタン・Enter・Space）。新しいタイトルがあれば暗転してから StartGame を呼ぶ。</summary>
+        public void RequestStart()
+        {
+            if (State != GameState.Title) return;
+            if (titleScreen != null && titleScreen.Active) titleScreen.BeginStart();
+            else StartGame();
         }
 
         public void StartGame()
@@ -129,7 +139,7 @@ namespace MosquitoGame
             if (State == GameState.Title)
             {
                 // マウスでは「はじめる」ボタン（音量スライダーを触ってもはじまらないように）。キーは Enter / Space
-                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space)) StartGame();
+                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space)) RequestStart();
                 return;
             }
             if (State == GameState.GameOver || State == GameState.Cleared)
@@ -234,7 +244,7 @@ namespace MosquitoGame
 
             if (State == GameState.Title)
             {
-                DrawTitle(w, h);
+                if (titleScreen == null || !titleScreen.Active) DrawTitle(w, h);   // 新しいタイトルを出せないときだけ従来の表示
                 return;
             }
 
