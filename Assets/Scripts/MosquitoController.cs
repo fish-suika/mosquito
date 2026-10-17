@@ -127,8 +127,8 @@ namespace MosquitoGame
                 move = Vector3.zero; suckHeld = false; dashPressed = false;
                 return;
             }
-            // 上昇 Space／下降 Ctrl／回避ダッシュ Shift または右クリック
-            float down = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl) ? 1f : 0f;
+            // 上昇 Space／下降 C／回避ダッシュ Shift または右クリック（Ctrl はブラウザの Ctrl+W 等と重なってタブが閉じるので使わない）
+            float down = Input.GetKey(KeyCode.C) ? 1f : 0f;
             move = new Vector3(Axis(KeyCode.D, KeyCode.A), (Input.GetKey(KeyCode.Space) ? 1f : 0f) - down, Axis(KeyCode.W, KeyCode.S));
             suckHeld = Input.GetMouseButton(0);
             dashPressed = Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift);

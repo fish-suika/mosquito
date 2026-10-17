@@ -322,7 +322,7 @@ namespace MosquitoGame
         static readonly string[] HowToLines =
         {
             "【操作】",
-            "マウス：視点　　WASD：移動　　Space：上昇　　Ctrl：下降",
+            "マウス：視点　　WASD：移動　　Space：上昇　　C：下降",
             "左クリック長押し：肌に着地して吸血　　Shift／右クリック：回避ダッシュ",
             "【ルール】",
             "血のメーターを満タンにすればクリア（お腹いっぱいで帰れる）",
@@ -339,7 +339,7 @@ namespace MosquitoGame
             "移動　　　WASD",
             "視点　　　マウス",
             "上昇　　　Space",
-            "下降　　　Ctrl",
+            "下降　　　C",
             "吸血　　　左クリック長押し",
             "ダッシュ　Shift／右クリック",
             "ポーズ　　Esc",
