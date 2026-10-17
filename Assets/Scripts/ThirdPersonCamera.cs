@@ -19,6 +19,15 @@ namespace MosquitoGame
         [Tooltip("true にすると Editor から Yaw/Pitch を直接指定できる（マウスを読まない）")]
         public bool scripted;
 
+        float shakeAmp, shakeLeft, shakeTotal;
+
+        /// <summary>画面を揺らす（叩かれた・叩かれそうなときの演出）。</summary>
+        public void Shake(float amplitude, float duration)
+        {
+            if (amplitude < shakeAmp * (shakeLeft / Mathf.Max(0.01f, shakeTotal))) return;
+            shakeAmp = amplitude; shakeLeft = shakeTotal = duration;
+        }
+
         void LateUpdate()
         {
             if (target == null) return;
@@ -40,6 +49,13 @@ namespace MosquitoGame
 
             transform.position = pivot + back * dist;
             transform.rotation = rot;
+
+            if (shakeLeft > 0f)
+            {
+                shakeLeft -= Time.unscaledDeltaTime;
+                float k = Mathf.Clamp01(shakeLeft / shakeTotal);
+                transform.position += Random.insideUnitSphere * (shakeAmp * k);
+            }
         }
     }
 }

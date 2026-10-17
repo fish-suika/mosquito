@@ -27,6 +27,7 @@ namespace MosquitoGame
         [Header("参照")]
         public Transform wingL;
         public Transform wingR;
+        public Transform belly;            // お腹（血を吸うとふくらんで赤くなる）
         public ThirdPersonCamera cam;
         public Human human;
 
@@ -43,6 +44,14 @@ namespace MosquitoGame
         public float CurrentSuckRate { get; private set; }
         public PartType? CurrentPart => part != null ? part.type : (PartType?)null;
         public int Streak => streak;
+        public Vector3 Velocity => velocity;
+        public float SessionPoints { get; private set; }   // いまの吸血で稼いでいる点（離れるとリセット）
+        public float Blood01 { get; private set; }         // お腹の血の量 0〜1
+
+        const float BloodPerPoint = 1f / 400f;
+        Renderer bellyRenderer;
+        Vector3 bellyBaseScale;
+        static readonly Color BellyEmpty = new Color(0.16f, 0.12f, 0.12f), BellyFull = new Color(0.75f, 0.05f, 0.08f);
 
         const float RoomX = 29f, RoomZ = 19f, RoomMinY = 0.3f, RoomMaxY = 25f;
 
@@ -54,11 +63,23 @@ namespace MosquitoGame
         PartType? lastType;
         int streak;
 
+        void Start()
+        {
+            if (belly != null)
+            {
+                bellyRenderer = belly.GetComponentInChildren<Renderer>();
+                bellyBaseScale = belly.localScale;
+                if (bellyRenderer != null) bellyRenderer.material.color = BellyEmpty;   // 共有マテリアルは汚さない
+            }
+        }
+
         void Update()
         {
             var gm = GameManager.Instance;
             if (human != null) human.ItchRate = 0f;
             CurrentSuckRate = 0f;
+            if (CurrentMode != Mode.Sucking) SessionPoints = 0f;
+            AnimateBelly();
             AnimateWings(gm == null || gm.IsPlaying ? 1f : 0.2f);
             if (gm != null && !gm.IsPlaying) return;
 
@@ -241,6 +262,8 @@ namespace MosquitoGame
             CurrentSuckRate = rate;
             var gm = GameManager.Instance;
             if (gm != null) gm.AddScore(rate * dt);
+            SessionPoints += rate * dt;
+            Blood01 = Mathf.Min(1f, Blood01 + rate * dt * BloodPerPoint);
             if (human != null) human.ItchRate = StealthRules.Itch(part.type) * StealthRules.RepeatMultiplier(streak);
         }
 
@@ -251,6 +274,14 @@ namespace MosquitoGame
             CurrentMode = Mode.Flying;
             velocity = n * takeOffBoost;
             part = null;
+        }
+
+        void AnimateBelly()
+        {
+            if (belly == null) return;
+            if (CurrentMode != Mode.Sucking) Blood01 = Mathf.Max(0f, Blood01 - 0.01f * Time.deltaTime);   // ゆっくり消化
+            belly.localScale = new Vector3(bellyBaseScale.x * (1f + 0.5f * Blood01), bellyBaseScale.y * (1f + 0.6f * Blood01), bellyBaseScale.z * (1f + 0.5f * Blood01));
+            if (bellyRenderer != null) bellyRenderer.material.color = Color.Lerp(BellyEmpty, BellyFull, Mathf.Clamp01(Blood01 * 1.5f));
         }
 
         void AnimateWings(float speed)

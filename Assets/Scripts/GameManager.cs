@@ -143,6 +143,7 @@ namespace MosquitoGame
         {
             Styles();
             float w = Screen.width, h = Screen.height;
+            DrawVignette(w, h);
 
             label.alignment = TextAnchor.UpperLeft;
             GUI.Label(new Rect(24, 16, 500, 36), "スコア  " + Mathf.FloorToInt(Score), label);
@@ -156,7 +157,7 @@ namespace MosquitoGame
                 small.alignment = TextAnchor.MiddleCenter;
                 GUI.Label(new Rect(barRect.x, barRect.y - 30, barRect.width, 26), "気づき　" + StateName(human.State), small);
 
-                if (human.State == HumanState.Alert)
+                if (human.State == HumanState.Alert && State == GameState.Playing)
                 {
                     float left = Mathf.Max(0f, StealthRules.EscapeSeconds - human.LostTimer);
                     string msg = human.CanSeeMosquito ? "視界から逃げて隠れろ！" : "逃げ切りまで " + left.ToString("0.0") + " 秒";
@@ -172,9 +173,16 @@ namespace MosquitoGame
 
                 if (mosquito.CurrentMode == MosquitoController.Mode.Sucking && mosquito.CurrentPart.HasValue)
                 {
-                    string t = "吸血中：" + PartName(mosquito.CurrentPart.Value) + "  +" + Mathf.RoundToInt(mosquito.CurrentSuckRate) + "/秒";
-                    if (mosquito.Streak > 0) t += "（連続 ×" + StealthRules.RepeatMultiplier(mosquito.Streak).ToString("0.0") + " かゆみ）";
-                    GUI.Label(new Rect(0, h * 0.62f, w, 36), t, Center(label));
+                    var part = mosquito.CurrentPart.Value;
+                    string t = "吸血中：" + PartName(part) + "  +" + Mathf.RoundToInt(mosquito.CurrentSuckRate) + "/秒　この吸血 +" + Mathf.FloorToInt(mosquito.SessionPoints);
+                    GUI.Label(new Rect(0, h * 0.60f, w, 36), t, Center(label));
+
+                    // かゆみの速さ（バレやすさ）メーター。連続で同じ部位を吸うと倍率が上がって伸びる
+                    float risk = Mathf.Clamp01(StealthRules.Itch(part) * StealthRules.RepeatMultiplier(mosquito.Streak) / 40f);
+                    var riskRect = new Rect(w * 0.5f - 130, h * 0.60f + 44, 260, 16);
+                    Bar(riskRect, risk, Color.Lerp(new Color(1f, 0.85f, 0.3f), new Color(1f, 0.2f, 0.15f), risk));
+                    string r = "バレやすさ" + (mosquito.Streak > 0 ? "（連続 ×" + StealthRules.RepeatMultiplier(mosquito.Streak).ToString("0.0") + "）" : "");
+                    GUI.Label(new Rect(riskRect.x - 40, riskRect.y + 18, riskRect.width + 80, 24), r, Center(small));
                 }
             }
 
@@ -197,6 +205,52 @@ namespace MosquitoGame
                     GUI.Label(new Rect(0, h * 0.28f + 130, w, 30), "逃げ切り " + EscapeCount + " 回", Center(small));
                 GUI.Label(new Rect(0, h * 0.28f + 180, w, 30), "R キーかクリックでリトライ", Center(small));
             }
+
+            float flashAge = Time.unscaledTime - flashStart;
+            if (flashAge < flashDuration)
+            {
+                var c = flashColor;
+                c.a *= 1f - flashAge / flashDuration;
+                Rect(new Rect(0, 0, w, h), c);
+            }
+        }
+
+        // ---- 演出 ----
+
+        Color flashColor;
+        float flashStart = -10f, flashDuration = 0.01f;
+        Texture2D vignette;
+
+        /// <summary>画面全体を一瞬染める（見つかった・叩かれた）。</summary>
+        public void Flash(Color c, float duration)
+        {
+            flashColor = c; flashStart = Time.unscaledTime; flashDuration = Mathf.Max(0.01f, duration);
+        }
+
+        void DrawVignette(float w, float h)
+        {
+            if (human == null) return;
+            float a = human.Awareness / StealthRules.MaxAwareness;
+            float alpha = Mathf.Clamp01((a - 0.35f) / 0.65f) * 0.55f;
+            if (human.State == HumanState.Alert) alpha = 0.45f + 0.15f * Mathf.Sin(Time.unscaledTime * 8f);
+            if (alpha <= 0.01f) return;
+            if (vignette == null)
+            {
+                const int n = 64;
+                vignette = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                    {
+                        float dx = (x + 0.5f) / n * 2f - 1f, dy = (y + 0.5f) / n * 2f - 1f;
+                        float d = Mathf.Clamp01((Mathf.Sqrt(dx * dx + dy * dy) - 0.55f) / 0.9f);
+                        vignette.SetPixel(x, y, new Color(1f, 0.05f, 0.05f, d * d));
+                    }
+                vignette.Apply();
+            }
+            var old = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, alpha);
+            GUI.DrawTexture(new Rect(0, 0, w, h), vignette);
+            GUI.color = old;
         }
 
         GUIStyle Left(GUIStyle s) { s.alignment = TextAnchor.UpperLeft; return s; }

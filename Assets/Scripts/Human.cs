@@ -1,19 +1,30 @@
+using System;
 using UnityEngine;
 
 namespace MosquitoGame
 {
-    /// <summary>人間：寝ている/うとうと/起きている/攻撃中、気づきゲージ、叩く動作。</summary>
+    /// <summary>
+    /// 人間：寝ている/うとうと/起きている/攻撃中、気づきゲージ、叩く動作。
+    /// 見た目（Model）と当たり判定（Hitboxes）は分けてあり、見た目は eyes / shoulders / attackArm / hand / exclaim の
+    /// 参照を付け直せば（なくても動く）別のモデルに差し替えられる。ロジックは yawPivot / upper / head だけを使う。
+    /// </summary>
     [DefaultExecutionOrder(-20)]
     public class Human : MonoBehaviour
     {
         enum Phase { Idle, Windup, Strike, Recover }
 
-        [Header("参照")]
+        [Header("ロジックが使う参照（差し替えても必須）")]
         public Transform yawPivot;   // 腰。ここを中心に上体が起き上がる/左右を向く
         public Transform upper;      // 上体（起き上がりの回転）
-        public Transform head;       // 頭。head.up が顔の向き（=視線）
+        public Transform head;       // 頭の位置。head.up が顔の向き（=視線）
         public Transform hand;       // 叩く手
         public Transform marker;     // 叩く場所の予兆
+
+        [Header("見た目の参照（なくてもよい）")]
+        public Transform[] eyes;         // 開き具合を scale.x で表す
+        public Transform[] shoulders;    // 叩く腕の付け根（左右）
+        public Transform attackArm;      // 叩くときに肩から手まで伸びる腕（Y 軸に伸びる円柱）
+        public Transform exclaim;        // 見つかったときの「！」
 
         public MosquitoController mosquito;
 
@@ -32,20 +43,35 @@ namespace MosquitoGame
         [Header("テスト用")]
         public bool freezeStateChanges;       // true なら寝る/起きるの自動切り替えをしない
 
+        public event Action OnAlert;
+        public event Action OnWindup;
+        public event Action<bool> OnStrike;   // 叩いた瞬間。引数は当たったか
+
         public HumanState State { get; private set; } = HumanState.Sleeping;
         public float Awareness { get; private set; }
         public float LostTimer { get; private set; }
         public bool CanSeeMosquito { get; private set; }
         public float ItchRate;
 
-        float stateTimer = 15f, sit, yaw, atkTimer, phaseElapsed;
+        float stateTimer = 15f, sit, yaw, atkTimer, phaseElapsed, startle, exclaimTimer, blinkTimer = 3f, blinkLeft;
         Phase phase;
         Vector3 target;
+        Vector3[] eyeBase;
         static readonly RaycastHit[] hits = new RaycastHit[16];
+
+        void Awake()
+        {
+            if (eyes != null)
+            {
+                eyeBase = new Vector3[eyes.Length];
+                for (int i = 0; i < eyes.Length; i++) if (eyes[i] != null) eyeBase[i] = eyes[i].localScale;
+            }
+        }
 
         void Start()
         {
             SetAttackVisible(false);
+            if (exclaim != null) exclaim.gameObject.SetActive(false);
         }
 
         void Update()
@@ -58,6 +84,7 @@ namespace MosquitoGame
             else UpdateCalm(dt);
 
             AnimatePose(dt);
+            AnimateFace(dt);
         }
 
         // ---- 気づきゲージと状態 ----
@@ -79,12 +106,12 @@ namespace MosquitoGame
             if (stateTimer > 0f) return;
             switch (State)
             {
-                case HumanState.Sleeping: State = HumanState.Drowsy; stateTimer = Random.Range(5f, 8f); break;
+                case HumanState.Sleeping: State = HumanState.Drowsy; stateTimer = UnityEngine.Random.Range(5f, 8f); break;
                 case HumanState.Drowsy:
-                    if (Random.value < 0.6f) { State = HumanState.Awake; stateTimer = Random.Range(5f, 8f); }
-                    else { State = HumanState.Sleeping; stateTimer = Random.Range(14f, 22f); }
+                    if (UnityEngine.Random.value < 0.6f) { State = HumanState.Awake; stateTimer = UnityEngine.Random.Range(5f, 8f); }
+                    else { State = HumanState.Sleeping; stateTimer = UnityEngine.Random.Range(14f, 22f); }
                     break;
-                default: State = HumanState.Drowsy; stateTimer = Random.Range(4f, 6f); break;
+                default: State = HumanState.Drowsy; stateTimer = UnityEngine.Random.Range(4f, 6f); break;
             }
         }
 
@@ -95,6 +122,10 @@ namespace MosquitoGame
             LostTimer = 0f;
             phase = Phase.Idle;
             atkTimer = firstAttackDelay;
+            startle = 1f;
+            exclaimTimer = 1.4f;
+            sit = Mathf.Max(sit, 0.55f);   // 飛び起きる
+            OnAlert?.Invoke();
         }
 
         void UpdateAlert(float dt)
@@ -114,7 +145,7 @@ namespace MosquitoGame
         {
             State = HumanState.Drowsy;
             Awareness = StealthRules.AfterEscapeAwareness;
-            stateTimer = Random.Range(5f, 8f);
+            stateTimer = UnityEngine.Random.Range(5f, 8f);
             LostTimer = 0f;
             phase = Phase.Idle;
             SetAttackVisible(false);
@@ -162,6 +193,7 @@ namespace MosquitoGame
                         target = mosquito.Position;
                         SetAttackVisible(true);
                         PlaceAttack(1f);
+                        OnWindup?.Invoke();
                     }
                     break;
 
@@ -176,7 +208,9 @@ namespace MosquitoGame
                     if (phaseElapsed >= strikeTime)
                     {
                         phase = Phase.Recover; phaseElapsed = 0f;
-                        if (Vector3.Distance(mosquito.Position, target) < hitRadius)
+                        bool hit = Vector3.Distance(mosquito.Position, target) < hitRadius;
+                        OnStrike?.Invoke(hit);
+                        if (hit)
                         {
                             var gm = GameManager.Instance;
                             if (gm != null) gm.EndGame("叩かれた");
@@ -206,15 +240,37 @@ namespace MosquitoGame
                     groundY = h.point.y + 0.05f;
                 marker.position = new Vector3(target.x, groundY, target.z);
             }
+            PlaceArm();
+        }
+
+        void PlaceArm()
+        {
+            if (attackArm == null || hand == null || shoulders == null || shoulders.Length == 0) return;
+            Transform best = null;
+            float bestD = float.MaxValue;
+            foreach (var s in shoulders)
+            {
+                if (s == null) continue;
+                float d = (s.position - hand.position).sqrMagnitude;
+                if (d < bestD) { bestD = d; best = s; }
+            }
+            if (best == null) return;
+            Vector3 a = best.position, b = hand.position, dir = b - a;
+            float len = dir.magnitude;
+            if (len < 0.01f) return;
+            attackArm.position = (a + b) * 0.5f;
+            attackArm.rotation = Quaternion.FromToRotation(Vector3.up, dir);
+            attackArm.localScale = new Vector3(1.5f, len * 0.5f, 1.5f);
         }
 
         void SetAttackVisible(bool v)
         {
             if (hand != null) hand.gameObject.SetActive(v);
             if (marker != null) marker.gameObject.SetActive(v);
+            if (attackArm != null) attackArm.gameObject.SetActive(v);
         }
 
-        // ---- 姿勢 ----
+        // ---- 姿勢・表情 ----
 
         void AnimatePose(float dt)
         {
@@ -227,7 +283,8 @@ namespace MosquitoGame
                 default: targetSit = 1f; speed = 2.5f; break;
             }
             sit = Mathf.MoveTowards(sit, targetSit, speed * dt);
-            if (upper != null) upper.localRotation = Quaternion.Euler(0f, 0f, -sitAngle * sit);
+            startle = Mathf.MoveTowards(startle, 0f, 2.5f * dt);
+            if (upper != null) upper.localRotation = Quaternion.Euler(0f, 0f, -sitAngle * sit - 10f * startle);
 
             float targetYaw = 0f, yawSpeed = 40f;
             if (State == HumanState.Awake) targetYaw = 45f * Mathf.Sin(Time.time * 0.5f);
@@ -243,6 +300,52 @@ namespace MosquitoGame
             }
             yaw = Mathf.MoveTowardsAngle(yaw, targetYaw, yawSpeed * dt);
             if (yawPivot != null) yawPivot.localRotation = Quaternion.Euler(0f, yaw * Mathf.Clamp01(sit * 2f), 0f);
+        }
+
+        void AnimateFace(float dt)
+        {
+            if (eyes != null && eyeBase != null)
+            {
+                float open;
+                switch (State)
+                {
+                    case HumanState.Sleeping: open = 0.06f; break;
+                    case HumanState.Drowsy: open = 0.2f + 0.25f * Mathf.PerlinNoise(Time.time * 0.6f, 3.1f); break;
+                    case HumanState.Awake: open = 1f; break;
+                    default: open = 1.2f; break;
+                }
+                if (State == HumanState.Awake)
+                {
+                    blinkTimer -= dt;
+                    if (blinkTimer <= 0f) { blinkLeft = 0.12f; blinkTimer = UnityEngine.Random.Range(2.5f, 5f); }
+                    if (blinkLeft > 0f) { blinkLeft -= dt; open = 0.08f; }
+                }
+                for (int i = 0; i < eyes.Length; i++)
+                {
+                    if (eyes[i] == null) continue;
+                    var b = eyeBase[i];
+                    eyes[i].localScale = new Vector3(b.x * open, b.y, b.z);
+                }
+            }
+
+            if (exclaim != null)
+            {
+                if (exclaimTimer > 0f)
+                {
+                    exclaimTimer -= dt;
+                    if (!exclaim.gameObject.activeSelf) exclaim.gameObject.SetActive(true);
+                    Vector3 p = head != null ? head.position : transform.position;
+                    exclaim.position = p + Vector3.up * (4.2f + 0.3f * Mathf.Sin(Time.time * 14f));
+                    var cam = Camera.main;
+                    if (cam != null)
+                    {
+                        Vector3 f = exclaim.position - cam.transform.position;
+                        f.y = 0f;
+                        if (f.sqrMagnitude > 1e-4f) exclaim.rotation = Quaternion.LookRotation(f);
+                    }
+                }
+                else if (exclaim.gameObject.activeSelf) exclaim.gameObject.SetActive(false);
+            }
         }
     }
 }
