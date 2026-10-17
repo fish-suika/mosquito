@@ -45,7 +45,6 @@ namespace MosquitoGame
         public PartType? CurrentPart => part != null ? part.type : (PartType?)null;
         public int Streak => streak;
         public Vector3 Velocity => velocity;
-        public float SessionPoints { get; private set; }   // いまの吸血で稼いでいる点（離れるとリセット）
         public float Blood01 { get; private set; }         // 血のメーター 0〜1（吸った点の合計 ÷ BloodGoal。減らない。1 でクリア）
         Renderer bellyRenderer;
         Vector3 bellyBaseScale;
@@ -76,7 +75,6 @@ namespace MosquitoGame
             var gm = GameManager.Instance;
             if (human != null) human.ItchRate = 0f;
             CurrentSuckRate = 0f;
-            if (CurrentMode != Mode.Sucking) SessionPoints = 0f;
             AnimateBelly();
             AnimateWings(gm == null || gm.IsPlaying ? 1f : 0.2f);
             if (gm != null && !gm.IsPlaying) return;
@@ -261,8 +259,6 @@ namespace MosquitoGame
             float rate = StealthRules.SuckPoints(part.type);
             CurrentSuckRate = rate;
             var gm = GameManager.Instance;
-            if (gm != null) gm.AddScore(rate * dt);
-            SessionPoints += rate * dt;
             Blood01 = Mathf.Min(1f, Blood01 + rate * dt / StealthRules.BloodGoal);
             if (Blood01 >= 1f && gm != null) gm.Clear();   // お腹いっぱい＝クリア
             if (human != null) human.ItchRate = StealthRules.Itch(part.type) * StealthRules.RepeatMultiplier(streak);

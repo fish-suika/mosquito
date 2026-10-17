@@ -59,6 +59,13 @@ namespace MosquitoGame.EditorTools
             title.softMat = AssetDatabase.LoadAssetAtPath<Material>(TitleAssetBuilder.SoftMatPath);
             gm.titleScreen = title;
 
+            // ポーズ画面（タイトルと同じ見た目のボタン構成）
+            var pause = new GameObject("PauseScreen").AddComponent<PauseScreen>();
+            pause.gm = gm;
+            pause.font = title.font;
+            pause.logoMat = title.logoMat; pause.redMat = title.redMat; pause.softMat = title.softMat;
+            gm.pauseScreen = pause;
+
             var fb = new GameObject("GameFeedback").AddComponent<GameFeedback>();
             fb.mosquito = mosquito;
             fb.human = human;

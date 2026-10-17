@@ -30,6 +30,7 @@ namespace MosquitoGame.EditorTools
             "見つかったら手で叩いてくるダッシュでよけて物陰に隠れれば逃げ切り叩かれたらゲームオーバー" +
             "音量全体羽音効果音環境音ベストスコアタイム" +
             " 　、。・：／（）「」！？％×+-0123456789.:/" +
+            "遊び方設定再開やり直し戻る閉じるポーズ中蚊の横に出ます吸っている間たくさん血危ない場所ほど" +
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
         [MenuItem("Mosquito/Build Title Assets")]

@@ -3,7 +3,7 @@ using UnityEngine.SceneManagement;
 
 namespace MosquitoGame
 {
-    /// <summary>スコア・タイトル・ゲームオーバー・リトライ・ポーズ・ベストスコア保存と、画面表示。</summary>
+    /// <summary>タイトル・ゲームオーバー・クリア・リトライ・ポーズの流れと、プレイ中の画面表示（OnGUI）。スコアはない（血のメーターが満タンでクリア）。</summary>
     [DefaultExecutionOrder(-100)]
     public class GameManager : MonoBehaviour
     {
@@ -17,16 +17,15 @@ namespace MosquitoGame
         public bool manageCursor = true;
         [Tooltip("true: 最初にタイトル画面を出す（リトライのときは出さない）")]
         public bool startAtTitle = true;
-        [Tooltip("画面表示の日本語フォント。空なら Editor では OS のフォントを使う（WebGL では必ず設定する）")]
+        [Tooltip("プレイ中の表示（OnGUI）の日本語フォント。空なら Editor では OS のフォントを使う（WebGL では必ず設定する）")]
         public Font uiFont;
-        [Tooltip("UI Canvas + TextMeshPro のタイトル画面。空、または出せないときは従来の OnGUI のタイトルを使う")]
+        [Tooltip("UI Canvas + TextMeshPro のタイトル画面")]
         public TitleScreen titleScreen;
+        [Tooltip("UI Canvas + TextMeshPro のポーズ画面")]
+        public PauseScreen pauseScreen;
 
         public GameState State { get; private set; }
         public bool Paused { get; private set; }
-        public float Score { get; private set; }
-        public float Best => best;
-        public bool NewRecord { get; private set; }
         public float PlayTime { get; private set; }       // 遊んだ秒数（ポーズ中は進まない）
         public float BestTime => bestTime;                // クリアの最短タイム（0 = まだクリアしていない）
         public bool NewBestTime { get; private set; }
@@ -34,14 +33,13 @@ namespace MosquitoGame
         public int EscapeCount;
         public bool IsPlaying => State == GameState.Playing && !Paused;
 
-        const string BestKey = "mosquito.best";
         const string BestTimeKey = "mosquito.bestTime";
         static bool skipTitle;      // リトライ（シーン再読み込み）のときはタイトルを飛ばす
-        static float best, bestTime;
+        static float bestTime;
         static bool bestLoaded;
 
-        float overTime, startTime, lockedAt;
-        GUIStyle label, big, small, title, btn;
+        float overTime, lockedAt;
+        GUIStyle label, big, small, side;
         Texture2D white;
 
         void Awake()
@@ -50,7 +48,6 @@ namespace MosquitoGame
             Time.timeScale = 1f;
             if (!bestLoaded)
             {
-                best = PlayerPrefs.GetFloat(BestKey, 0f);
                 bestTime = PlayerPrefs.GetFloat(BestTimeKey, 0f);
                 bestLoaded = true;
             }
@@ -60,7 +57,6 @@ namespace MosquitoGame
 
         void Start()
         {
-            startTime = Time.unscaledTime;
             if (State == GameState.Playing && manageCursor) LockCursor(true);
             else if (State == GameState.Title && manageCursor) LockCursor(false);
         }
@@ -70,12 +66,7 @@ namespace MosquitoGame
             if (Instance == this) Instance = null;
         }
 
-        public void AddScore(float v)
-        {
-            if (State == GameState.Playing) Score += v;
-        }
-
-        /// <summary>開始の入口（ボタン・Enter・Space）。新しいタイトルがあれば暗転してから StartGame を呼ぶ。</summary>
+        /// <summary>開始の入口（ボタン・Enter・Space）。タイトルがあれば暗転してから StartGame を呼ぶ。</summary>
         public void RequestStart()
         {
             if (State != GameState.Title) return;
@@ -87,7 +78,6 @@ namespace MosquitoGame
         {
             if (State != GameState.Title) return;
             State = GameState.Playing;
-            startTime = Time.unscaledTime;
             if (manageCursor) LockCursor(true);
         }
 
@@ -97,13 +87,6 @@ namespace MosquitoGame
             State = GameState.GameOver;
             EndReason = reason;
             overTime = Time.unscaledTime;
-            NewRecord = Score > best && Score >= 1f;
-            if (NewRecord)
-            {
-                best = Score;
-                PlayerPrefs.SetFloat(BestKey, best);
-                PlayerPrefs.Save();
-            }
             if (manageCursor) LockCursor(false);
         }
 
@@ -113,8 +96,6 @@ namespace MosquitoGame
             if (State != GameState.Playing) return;
             State = GameState.Cleared;
             overTime = Time.unscaledTime;
-            NewRecord = Score > best;
-            if (NewRecord) { best = Score; PlayerPrefs.SetFloat(BestKey, best); }
             NewBestTime = bestTime <= 0f || PlayTime < bestTime;
             if (NewBestTime) { bestTime = PlayTime; PlayerPrefs.SetFloat(BestTimeKey, bestTime); }
             PlayerPrefs.Save();
@@ -134,12 +115,19 @@ namespace MosquitoGame
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
 
+        /// <summary>ポーズ画面の「再開」ボタンから</summary>
+        public void ResumeFromUI()
+        {
+            if (Paused) SetPaused(false);
+        }
+
         void Update()
         {
             if (State == GameState.Title)
             {
-                // マウスでは「はじめる」ボタン（音量スライダーを触ってもはじまらないように）。キーは Enter / Space
-                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space)) RequestStart();
+                // マウスでは「はじめる」ボタン。キーは Enter / Space（遊び方・設定のパネルが開いている間は無効）
+                bool panel = titleScreen != null && titleScreen.PanelOpen;
+                if (!panel && (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))) RequestStart();
                 return;
             }
             if (State == GameState.GameOver || State == GameState.Cleared)
@@ -158,9 +146,10 @@ namespace MosquitoGame
             }
             else
             {
-                // マウスでは「再開」「やり直し」ボタン。キーは Enter で再開、R でやり直し
+                // マウスでは「再開」「やり直し」ボタン。キーは Enter で再開、R でやり直し（パネルが開いている間は Enter 無効）
+                bool panel = pauseScreen != null && pauseScreen.PanelOpen;
                 if (Input.GetKeyDown(KeyCode.R)) Restart();
-                else if (Input.GetKeyDown(KeyCode.Return)) SetPaused(false);
+                else if (!panel && Input.GetKeyDown(KeyCode.Return)) SetPaused(false);
             }
         }
 
@@ -169,6 +158,7 @@ namespace MosquitoGame
             Paused = p;
             Time.timeScale = p ? 0f : 1f;
             LockCursor(!p);
+            if (pauseScreen != null) pauseScreen.SetVisible(p);
         }
 
         void LockCursor(bool on)
@@ -178,7 +168,7 @@ namespace MosquitoGame
             if (on) lockedAt = Time.unscaledTime;
         }
 
-        // ---- 画面表示（OnGUI）----
+        // ---- プレイ中の画面表示（OnGUI）----
 
         void Styles()
         {
@@ -187,15 +177,8 @@ namespace MosquitoGame
             label = new GUIStyle { font = font, fontSize = 22, normal = { textColor = Color.white }, wordWrap = false };
             big = new GUIStyle(label) { fontSize = 54, alignment = TextAnchor.MiddleCenter };
             small = new GUIStyle(label) { fontSize = 18, alignment = TextAnchor.MiddleCenter };
-            title = new GUIStyle(label) { fontSize = 72, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            side = new GUIStyle(small) { fontSize = 15, alignment = TextAnchor.MiddleLeft };
             white = Texture2D.whiteTexture;
-            // ボタンは標準の見た目だと日本語フォントが使われないので、自前の見た目にする
-            Texture2D Solid(Color c) { var t = new Texture2D(1, 1); t.SetPixel(0, 0, c); t.Apply(); return t; }
-            btn = new GUIStyle(label) { fontSize = 26, alignment = TextAnchor.MiddleCenter };
-            btn.normal.background = Solid(new Color(0.15f, 0.2f, 0.35f, 0.95f));
-            btn.hover.background = Solid(new Color(0.25f, 0.35f, 0.6f, 1f));
-            btn.active.background = Solid(new Color(0.35f, 0.5f, 0.8f, 1f));
-            btn.normal.textColor = btn.hover.textColor = btn.active.textColor = Color.white;
         }
 
         void Rect(Rect r, Color c)
@@ -236,24 +219,15 @@ namespace MosquitoGame
 
         void OnGUI()
         {
+            if (State == GameState.Title) return;   // タイトルは TitleScreen（UI Canvas）
+            if (Paused) return;                      // ポーズ中は PauseScreen（UI Canvas）だけを出す
             Styles();
             // 画面の大きさに合わせて表示を拡大縮小する（高さ 720 を基準）
             float s = Mathf.Clamp(Screen.height / 720f, 0.7f, 3f);
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * s);
             float w = Screen.width / s, h = Screen.height / s;
 
-            if (State == GameState.Title)
-            {
-                if (titleScreen == null || !titleScreen.Active) DrawTitle(w, h);   // 新しいタイトルを出せないときだけ従来の表示
-                return;
-            }
-
             DrawVignette(w, h);
-
-            label.alignment = TextAnchor.UpperLeft;
-            GUI.Label(new Rect(24, 16, 500, 36), "スコア  " + Mathf.FloorToInt(Score), label);
-            if (best > 0f) GUI.Label(new Rect(24, 48, 500, 30), "ベスト  " + Mathf.FloorToInt(best), Left(small));
-            if (mosquito != null) DrawBlood(mosquito.Blood01);
             DrawControlPanel(w, h);
 
             if (human != null)
@@ -278,11 +252,11 @@ namespace MosquitoGame
                 Bar(dashRect, mosquito.DashReady01, mosquito.DashReady01 >= 1f ? new Color(0.4f, 0.8f, 1f) : new Color(0.5f, 0.5f, 0.55f));
                 GUI.Label(new Rect(dashRect.x, dashRect.y - 26, dashRect.width, 24), "ダッシュ（Shift／右クリック）", Center(small));
 
-                if (mosquito.CurrentMode == MosquitoController.Mode.Sucking && mosquito.CurrentPart.HasValue && State == GameState.Playing && !Paused)
+                bool sucking = mosquito.CurrentMode == MosquitoController.Mode.Sucking && mosquito.CurrentPart.HasValue && State == GameState.Playing && !Paused;
+                if (sucking)
                 {
                     var part = mosquito.CurrentPart.Value;
-                    string t = "吸血中：" + PartName(part) + "  +" + Mathf.RoundToInt(mosquito.CurrentSuckRate) + "/秒　この吸血 +" + Mathf.FloorToInt(mosquito.SessionPoints);
-                    GUI.Label(new Rect(0, h * 0.60f, w, 36), t, Center(label));
+                    GUI.Label(new Rect(0, h * 0.60f, w, 36), "吸血中：" + PartName(part), Center(label));
 
                     // かゆみの速さ（バレやすさ）メーター。連続で同じ部位を吸うと倍率が上がって伸びる
                     float risk = Mathf.Clamp01(StealthRules.Itch(part) * StealthRules.RepeatMultiplier(mosquito.Streak) / 40f);
@@ -290,32 +264,30 @@ namespace MosquitoGame
                     Bar(riskRect, risk, Color.Lerp(new Color(1f, 0.85f, 0.3f), new Color(1f, 0.2f, 0.15f), risk));
                     string r = "バレやすさ" + (mosquito.Streak > 0 ? "（連続 ×" + StealthRules.RepeatMultiplier(mosquito.Streak).ToString("0.0") + "）" : "");
                     GUI.Label(new Rect(riskRect.x - 40, riskRect.y + 18, riskRect.width + 80, 24), r, Center(small));
+
+                    DrawBloodNearMosquito(s, w, h);
                 }
             }
-
-            if (Paused) DrawPause(w, h);
 
             if (State == GameState.GameOver)
             {
                 Rect(new Rect(0, 0, w, h), new Color(0.15f, 0f, 0f, 0.6f));
-                GUI.Label(new Rect(0, h * 0.26f, w, 80), "GAME OVER（" + EndReason + "）", big);
-                GUI.Label(new Rect(0, h * 0.26f + 90, w, 40), "スコア  " + Mathf.FloorToInt(Score) + "　ベスト  " + Mathf.FloorToInt(best), Center(label));
-                if (NewRecord) GUI.Label(new Rect(0, h * 0.26f + 130, w, 36), "ベスト更新！", Center(label));
-                GUI.Label(new Rect(0, h * 0.26f + 170, w, 30),
+                GUI.Label(new Rect(0, h * 0.28f, w, 80), "GAME OVER（" + EndReason + "）", big);
+                GUI.Label(new Rect(0, h * 0.28f + 96, w, 40),
                     "血のメーター " + Mathf.FloorToInt((mosquito != null ? mosquito.Blood01 : 0f) * 100f) + "％"
-                    + (EscapeCount > 0 ? "　逃げ切り " + EscapeCount + " 回" : ""), Center(small));
-                GUI.Label(new Rect(0, h * 0.26f + 220, w, 30), "R キーかクリックでリトライ", Center(small));
+                    + (EscapeCount > 0 ? "　逃げ切り " + EscapeCount + " 回" : ""), Center(label));
+                GUI.Label(new Rect(0, h * 0.28f + 160, w, 30), "R キーかクリックでリトライ", Center(small));
             }
 
             if (State == GameState.Cleared)
             {
                 Rect(new Rect(0, 0, w, h), new Color(0.05f, 0.18f, 0.08f, 0.62f));
-                GUI.Label(new Rect(0, h * 0.24f, w, 80), "満腹！ クリア", big);
-                GUI.Label(new Rect(0, h * 0.24f + 80, w, 36), "おなかいっぱい。夜の窓から帰っていった", Center(small));
-                GUI.Label(new Rect(0, h * 0.24f + 125, w, 40), "クリアタイム  " + FormatTime(PlayTime) + "　ベスト  " + FormatTime(bestTime), Center(label));
-                if (NewBestTime) GUI.Label(new Rect(0, h * 0.24f + 165, w, 36), "ベストタイム更新！", Center(label));
-                GUI.Label(new Rect(0, h * 0.24f + 205, w, 30), "スコア  " + Mathf.FloorToInt(Score) + (EscapeCount > 0 ? "　逃げ切り " + EscapeCount + " 回" : ""), Center(small));
-                GUI.Label(new Rect(0, h * 0.24f + 255, w, 30), "R キーかクリックでもう一度", Center(small));
+                GUI.Label(new Rect(0, h * 0.26f, w, 80), "満腹！ クリア", big);
+                GUI.Label(new Rect(0, h * 0.26f + 80, w, 36), "おなかいっぱい。夜の窓から帰っていった", Center(small));
+                GUI.Label(new Rect(0, h * 0.26f + 130, w, 40), "クリアタイム  " + FormatTime(PlayTime) + "　ベスト  " + FormatTime(bestTime), Center(label));
+                if (NewBestTime) GUI.Label(new Rect(0, h * 0.26f + 172, w, 36), "ベストタイム更新！", Center(label));
+                if (EscapeCount > 0) GUI.Label(new Rect(0, h * 0.26f + 212, w, 30), "逃げ切り " + EscapeCount + " 回", Center(small));
+                GUI.Label(new Rect(0, h * 0.26f + 262, w, 30), "R キーかクリックでもう一度", Center(small));
             }
 
             float flashAge = Time.unscaledTime - flashStart;
@@ -327,21 +299,24 @@ namespace MosquitoGame
             }
         }
 
-        // ---- タイトル・あそびかた・ポーズ ----
-
-        static readonly string[] HowToLines =
+        /// <summary>血のメーターは、血を吸っている間だけ蚊の横に出す</summary>
+        void DrawBloodNearMosquito(float s, float w, float h)
         {
-            "【操作】",
-            "マウス：視点　　WASD：移動　　Space：上昇　　C：下降",
-            "左クリック長押し：肌に着地して吸血　　Shift／右クリック：回避ダッシュ",
-            "【ルール】",
-            "血のメーターを満タンにすればクリア（お腹いっぱいで帰れる）",
-            "吸う場所が危ないほど多く吸える（顔 " + (int)StealthRules.SuckPoints(PartType.Face) + "・首 " + (int)StealthRules.SuckPoints(PartType.Neck)
-                + "・腕 " + (int)StealthRules.SuckPoints(PartType.Arm) + "・足首 " + (int)StealthRules.SuckPoints(PartType.Ankle) + " 点／秒）",
-            "かゆみ・視界・羽音で「気づき」が溜まり、満タンで見つかる",
-            "見つかったら手で叩いてくる。ダッシュでよけて、物陰に隠れれば逃げ切り",
-            "叩かれたらゲームオーバー",
-        };
+            var cam = Camera.main;
+            if (cam == null) return;
+            Vector3 sp = cam.WorldToScreenPoint(mosquito.Position);
+            if (sp.z <= 0f) return;
+            float v = mosquito.Blood01;
+            float x = Mathf.Clamp(sp.x / s + 52f, 8f, w - 218f);
+            float y = Mathf.Clamp((Screen.height - sp.y) / s - 32f, 8f, h - 70f);
+            Rect(new Rect(x, y, 210, 58), new Color(0f, 0.01f, 0.05f, 0.62f));
+            small.alignment = TextAnchor.MiddleLeft;
+            GUI.Label(new Rect(x + 10, y + 3, 200, 24), "血のメーター　" + Mathf.FloorToInt(v * 100f) + "％", small);
+            Color c = Color.Lerp(new Color(0.75f, 0.1f, 0.12f), new Color(1f, 0.25f, 0.25f), v);
+            if (v > 0.85f) c = Color.Lerp(c, Color.white, 0.25f + 0.25f * Mathf.Sin(Time.unscaledTime * 10f));   // もうすぐ満腹
+            Bar(new Rect(x + 10, y + 32, 190, 16), v, c);
+            small.alignment = TextAnchor.MiddleCenter;
+        }
 
         // 画面の右側に、プレイ中ずっと出しておく操作説明
         static readonly string[] SideLines =
@@ -355,11 +330,8 @@ namespace MosquitoGame
             "ポーズ　　Esc",
         };
 
-        GUIStyle side;
-
         void DrawControlPanel(float w, float h)
         {
-            if (side == null) side = new GUIStyle(small) { fontSize = 15, alignment = TextAnchor.MiddleLeft };
             const float pw = 236f, lh = 24f;
             float ph = 34f + SideLines.Length * lh;
             var r = new Rect(w - pw - 14f, h * 0.20f, pw, ph);
@@ -367,70 +339,6 @@ namespace MosquitoGame
             GUI.Label(new Rect(r.x + 12, r.y + 4, pw, 26), "操作", Left(small));
             for (int i = 0; i < SideLines.Length; i++)
                 GUI.Label(new Rect(r.x + 12, r.y + 32 + i * lh, pw - 12, lh), SideLines[i], side);
-        }
-
-        void DrawBlood(float v)
-        {
-            var bar = new Rect(24, 112, 300, 22);
-            GUI.Label(new Rect(24, 80, 400, 28), "血のメーター　" + Mathf.FloorToInt(v * 100f) + "％", Left(small));
-            Color c = Color.Lerp(new Color(0.75f, 0.1f, 0.12f), new Color(1f, 0.25f, 0.25f), v);
-            if (v > 0.85f) c = Color.Lerp(c, Color.white, 0.25f + 0.25f * Mathf.Sin(Time.unscaledTime * 10f));   // もうすぐ満腹
-            Bar(bar, v, c);
-        }
-
-        // 音量の調節（タイトルとポーズ画面。マウスでドラッグ）
-        void DrawVolume(float w, float top)
-        {
-            GUI.Label(new Rect(0, top, w, 30), "【音量】", Center(label));
-            string[] names = { "全体", "羽音", "効果音", "環境音" };
-            float[] vals = { AudioVolume.Master, AudioVolume.Buzz, AudioVolume.Sfx, AudioVolume.Ambient };
-            float[] nv = new float[4];
-            for (int i = 0; i < 4; i++)
-            {
-                float y = top + 34 + i * 26;
-                GUI.Label(new Rect(w * 0.5f - 230, y - 4, 100, 28), names[i], Left(small));
-                nv[i] = GUI.HorizontalSlider(new Rect(w * 0.5f - 130, y + 4, 260, 16), vals[i], 0f, 1f);
-                GUI.Label(new Rect(w * 0.5f + 150, y - 4, 70, 28), Mathf.RoundToInt(nv[i] * 100f) + "％", Left(small));
-            }
-            if (!Mathf.Approximately(nv[0], vals[0])) AudioVolume.Master = nv[0];
-            if (!Mathf.Approximately(nv[1], vals[1])) AudioVolume.Buzz = nv[1];
-            if (!Mathf.Approximately(nv[2], vals[2])) AudioVolume.Sfx = nv[2];
-            if (!Mathf.Approximately(nv[3], vals[3])) AudioVolume.Ambient = nv[3];
-            if (Input.GetMouseButtonUp(0)) AudioVolume.Save();
-        }
-
-        void DrawHowTo(float w, float top)
-        {
-            for (int i = 0; i < HowToLines.Length; i++)
-            {
-                bool head = HowToLines[i].StartsWith("【");
-                var st = head ? Center(label) : Center(small);
-                GUI.Label(new Rect(0, top + i * 26 + (head ? 4 : 0), w, 28), HowToLines[i], st);
-            }
-        }
-
-        void DrawTitle(float w, float h)
-        {
-            Rect(new Rect(0, 0, w, h), new Color(0.02f, 0.03f, 0.08f, 0.82f));
-            GUI.Label(new Rect(0, h * 0.04f, w, 90), "蚊のステルスゲーム", title);
-            GUI.Label(new Rect(0, h * 0.04f + 84, w, 36), "夜の寝室で、人間に見つからないように血を吸え", Center(label));
-            DrawHowTo(w, h * 0.235f);
-            string rec = (best > 0f ? "ベストスコア  " + Mathf.FloorToInt(best) : "") + (bestTime > 0f ? "　　ベストタイム  " + FormatTime(bestTime) : "");
-            if (rec.Length > 0) GUI.Label(new Rect(0, h * 0.235f + HowToLines.Length * 26 + 10, w, 30), rec, Center(small));
-            DrawVolume(w, h * 0.235f + HowToLines.Length * 26 + 44);
-            if (GUI.Button(new Rect(w * 0.5f - 130, h * 0.885f, 260, 52), "はじめる", btn)) StartGame();
-            GUI.Label(new Rect(0, h * 0.885f + 56, w, 24), "Enter キーでも始められます", Center(small));
-        }
-
-        void DrawPause(float w, float h)
-        {
-            Rect(new Rect(0, 0, w, h), new Color(0f, 0f, 0f, 0.7f));
-            GUI.Label(new Rect(0, h * 0.04f, w, 80), "ポーズ中", big);
-            DrawHowTo(w, h * 0.18f);
-            DrawVolume(w, h * 0.18f + HowToLines.Length * 26 + 20);
-            if (GUI.Button(new Rect(w * 0.5f - 280, h * 0.87f, 260, 52), "再開", btn)) SetPaused(false);
-            if (GUI.Button(new Rect(w * 0.5f + 20, h * 0.87f, 260, 52), "やり直し", btn)) Restart();
-            GUI.Label(new Rect(0, h * 0.87f + 56, w, 24), "Enter キーで再開　　R キーでやり直し", Center(small));
         }
 
         // ---- 演出 ----
