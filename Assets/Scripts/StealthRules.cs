@@ -19,10 +19,12 @@ namespace MosquitoGame
         {
             switch (t)
             {
-                case PartType.Ankle: return 10f;
+                // 「見つかるまでに稼げる点」が 足首200 < 腕260 < 首330 < 顔420 ほどになる値（Phase 3 の調整。
+                // Phase 1 の 10/20/35/60 では足首が最も稼げてしまい、危ない場所ほど高報酬にならなかった）
+                case PartType.Ankle: return 6f;
                 case PartType.Arm: return 20f;
-                case PartType.Neck: return 35f;
-                default: return 60f;
+                case PartType.Neck: return 55f;
+                default: return 120f;
             }
         }
 

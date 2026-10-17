@@ -47,6 +47,7 @@ namespace MosquitoGame.EditorTools
             var gm = gmGo.AddComponent<GameManager>();
             gm.mosquito = mosquito;
             gm.human = human;
+            gm.uiFont = AssetDatabase.LoadAssetAtPath<Font>("Assets/Fonts/NotoSansJP.ttf");   // WebGL では OS のフォントが使えないので、同梱した日本語フォントを使う
 
             var fb = new GameObject("GameFeedback").AddComponent<GameFeedback>();
             fb.mosquito = mosquito;

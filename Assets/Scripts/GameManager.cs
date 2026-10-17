@@ -3,41 +3,59 @@ using UnityEngine.SceneManagement;
 
 namespace MosquitoGame
 {
-    /// <summary>スコア・ゲームオーバー・リトライ・ポーズと、最小限の画面表示。</summary>
+    /// <summary>スコア・タイトル・ゲームオーバー・リトライ・ポーズ・ベストスコア保存と、画面表示。</summary>
     [DefaultExecutionOrder(-100)]
     public class GameManager : MonoBehaviour
     {
         public static GameManager Instance { get; private set; }
 
-        public enum GameState { Playing, GameOver }
+        public enum GameState { Title, Playing, GameOver }
 
         public MosquitoController mosquito;
         public Human human;
-        [Tooltip("true: クリックでマウスを固定し、Esc で解除してポーズする")]
+        [Tooltip("true: クリックでマウスを固定し、Esc（またはマウス固定が外れたとき）でポーズする")]
         public bool manageCursor = true;
+        [Tooltip("true: 最初にタイトル画面を出す（リトライのときは出さない）")]
+        public bool startAtTitle = true;
+        [Tooltip("画面表示の日本語フォント。空なら Editor では OS のフォントを使う（WebGL では必ず設定する）")]
+        public Font uiFont;
 
         public GameState State { get; private set; }
         public bool Paused { get; private set; }
         public float Score { get; private set; }
+        public float Best => best;
+        public bool NewRecord { get; private set; }
         public string EndReason { get; private set; }
         public int EscapeCount;
         public bool IsPlaying => State == GameState.Playing && !Paused;
 
+        const string BestKey = "mosquito.best";
+        static bool skipTitle;      // リトライ（シーン再読み込み）のときはタイトルを飛ばす
         static float best;
-        float overTime, startTime;
-        GUIStyle label, big, small;
+        static bool bestLoaded;
+
+        float overTime, startTime, lockedAt;
+        GUIStyle label, big, small, title;
         Texture2D white;
 
         void Awake()
         {
             Instance = this;
             Time.timeScale = 1f;
+            if (!bestLoaded)
+            {
+                best = PlayerPrefs.GetFloat(BestKey, 0f);
+                bestLoaded = true;
+            }
+            State = startAtTitle && !skipTitle ? GameState.Title : GameState.Playing;
+            skipTitle = false;
         }
 
         void Start()
         {
             startTime = Time.unscaledTime;
-            if (manageCursor) LockCursor(true);
+            if (State == GameState.Playing && manageCursor) LockCursor(true);
+            else if (State == GameState.Title && manageCursor) LockCursor(false);
         }
 
         void OnDestroy()
@@ -50,23 +68,44 @@ namespace MosquitoGame
             if (State == GameState.Playing) Score += v;
         }
 
+        public void StartGame()
+        {
+            if (State != GameState.Title) return;
+            State = GameState.Playing;
+            startTime = Time.unscaledTime;
+            if (manageCursor) LockCursor(true);
+        }
+
         public void EndGame(string reason)
         {
             if (State != GameState.Playing) return;
             State = GameState.GameOver;
             EndReason = reason;
             overTime = Time.unscaledTime;
-            if (Score > best) best = Score;
+            NewRecord = Score > best && Score >= 1f;
+            if (NewRecord)
+            {
+                best = Score;
+                PlayerPrefs.SetFloat(BestKey, best);
+                PlayerPrefs.Save();
+            }
             if (manageCursor) LockCursor(false);
         }
 
         public void Restart()
         {
+            skipTitle = true;
+            Time.timeScale = 1f;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
 
         void Update()
         {
+            if (State == GameState.Title)
+            {
+                if (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space)) StartGame();
+                return;
+            }
             if (State == GameState.GameOver)
             {
                 if (Time.unscaledTime - overTime > 0.6f && (Input.GetKeyDown(KeyCode.R) || Input.GetMouseButtonDown(0)))
@@ -74,8 +113,17 @@ namespace MosquitoGame
                 return;
             }
             if (!manageCursor) return;
-            if (!Paused && Input.GetKeyDown(KeyCode.Escape)) SetPaused(true);
-            else if (Paused && Input.GetMouseButtonDown(0)) SetPaused(false);
+            if (!Paused)
+            {
+                // Esc、またはブラウザ・OS 側でマウス固定が外れたらポーズ（固定の要求直後は少し待つ）
+                bool lost = Time.unscaledTime - lockedAt > 0.6f && Cursor.lockState != CursorLockMode.Locked;
+                if (Input.GetKeyDown(KeyCode.Escape) || lost) SetPaused(true);
+            }
+            else
+            {
+                if (Input.GetKeyDown(KeyCode.R)) Restart();
+                else if (Input.GetMouseButtonDown(0)) SetPaused(false);
+            }
         }
 
         void SetPaused(bool p)
@@ -85,10 +133,11 @@ namespace MosquitoGame
             LockCursor(!p);
         }
 
-        static void LockCursor(bool on)
+        void LockCursor(bool on)
         {
             Cursor.lockState = on ? CursorLockMode.Locked : CursorLockMode.None;
             Cursor.visible = !on;
+            if (on) lockedAt = Time.unscaledTime;
         }
 
         // ---- 画面表示（OnGUI）----
@@ -96,10 +145,11 @@ namespace MosquitoGame
         void Styles()
         {
             if (label != null) return;
-            var font = Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic UI", "Meiryo UI", "Meiryo", "Arial" }, 28);
+            var font = uiFont != null ? uiFont : Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic UI", "Meiryo UI", "Meiryo", "Arial" }, 28);
             label = new GUIStyle { font = font, fontSize = 22, normal = { textColor = Color.white }, wordWrap = false };
             big = new GUIStyle(label) { fontSize = 54, alignment = TextAnchor.MiddleCenter };
             small = new GUIStyle(label) { fontSize = 18, alignment = TextAnchor.MiddleCenter };
+            title = new GUIStyle(label) { fontSize = 72, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
             white = Texture2D.whiteTexture;
         }
 
@@ -142,7 +192,17 @@ namespace MosquitoGame
         void OnGUI()
         {
             Styles();
-            float w = Screen.width, h = Screen.height;
+            // 画面の大きさに合わせて表示を拡大縮小する（高さ 720 を基準）
+            float s = Mathf.Clamp(Screen.height / 720f, 0.7f, 3f);
+            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * s);
+            float w = Screen.width / s, h = Screen.height / s;
+
+            if (State == GameState.Title)
+            {
+                DrawTitle(w, h);
+                return;
+            }
+
             DrawVignette(w, h);
 
             label.alignment = TextAnchor.UpperLeft;
@@ -189,21 +249,17 @@ namespace MosquitoGame
             if (Time.unscaledTime - startTime < 10f && State == GameState.Playing)
                 GUI.Label(new Rect(0, h - 120, w, 28), "WASD 移動　Space 上昇　Shift 下降　左クリック長押し 吸血　右クリック ダッシュ　Esc ポーズ", Center(small));
 
-            if (Paused)
-            {
-                Rect(new Rect(0, 0, w, h), new Color(0f, 0f, 0f, 0.55f));
-                GUI.Label(new Rect(0, h * 0.38f, w, 80), "ポーズ中", big);
-                GUI.Label(new Rect(0, h * 0.38f + 80, w, 30), "クリックで再開", small);
-            }
+            if (Paused) DrawPause(w, h);
 
             if (State == GameState.GameOver)
             {
                 Rect(new Rect(0, 0, w, h), new Color(0.15f, 0f, 0f, 0.6f));
-                GUI.Label(new Rect(0, h * 0.28f, w, 80), "GAME OVER（" + EndReason + "）", big);
-                GUI.Label(new Rect(0, h * 0.28f + 90, w, 60), "スコア  " + Mathf.FloorToInt(Score) + "　ベスト  " + Mathf.FloorToInt(best), Center(label));
+                GUI.Label(new Rect(0, h * 0.26f, w, 80), "GAME OVER（" + EndReason + "）", big);
+                GUI.Label(new Rect(0, h * 0.26f + 90, w, 40), "スコア  " + Mathf.FloorToInt(Score) + "　ベスト  " + Mathf.FloorToInt(best), Center(label));
+                if (NewRecord) GUI.Label(new Rect(0, h * 0.26f + 130, w, 36), "ベスト更新！", Center(label));
                 if (EscapeCount > 0)
-                    GUI.Label(new Rect(0, h * 0.28f + 130, w, 30), "逃げ切り " + EscapeCount + " 回", Center(small));
-                GUI.Label(new Rect(0, h * 0.28f + 180, w, 30), "R キーかクリックでリトライ", Center(small));
+                    GUI.Label(new Rect(0, h * 0.26f + 170, w, 30), "逃げ切り " + EscapeCount + " 回", Center(small));
+                GUI.Label(new Rect(0, h * 0.26f + 220, w, 30), "R キーかクリックでリトライ", Center(small));
             }
 
             float flashAge = Time.unscaledTime - flashStart;
@@ -213,6 +269,53 @@ namespace MosquitoGame
                 c.a *= 1f - flashAge / flashDuration;
                 Rect(new Rect(0, 0, w, h), c);
             }
+        }
+
+        // ---- タイトル・あそびかた・ポーズ ----
+
+        static readonly string[] HowToLines =
+        {
+            "【操作】",
+            "マウス：視点　　WASD：移動　　Space：上昇　　Shift：下降",
+            "左クリック長押し：肌に着地して吸血　　右クリック：回避ダッシュ",
+            "【ルール】",
+            "吸う場所が危ないほど高得点（顔 " + (int)StealthRules.SuckPoints(PartType.Face) + "・首 " + (int)StealthRules.SuckPoints(PartType.Neck)
+                + "・腕 " + (int)StealthRules.SuckPoints(PartType.Arm) + "・足首 " + (int)StealthRules.SuckPoints(PartType.Ankle) + " 点／秒）",
+            "かゆみ・視界・羽音で「気づき」が溜まり、満タンで見つかる",
+            "見つかったら手で叩いてくる。ダッシュでよけて、物陰に隠れれば逃げ切り",
+            "叩かれたらゲームオーバー。スコアを稼ごう",
+        };
+
+        void DrawHowTo(float w, float top)
+        {
+            for (int i = 0; i < HowToLines.Length; i++)
+            {
+                bool head = HowToLines[i].StartsWith("【");
+                var st = head ? Center(label) : Center(small);
+                GUI.Label(new Rect(0, top + i * 30 + (head ? 6 : 0), w, 30), HowToLines[i], st);
+            }
+        }
+
+        void DrawTitle(float w, float h)
+        {
+            Rect(new Rect(0, 0, w, h), new Color(0.02f, 0.03f, 0.08f, 0.82f));
+            GUI.Label(new Rect(0, h * 0.10f, w, 90), "蚊のステルスゲーム", title);
+            GUI.Label(new Rect(0, h * 0.10f + 90, w, 36), "夜の寝室で、人間に見つからないように血を吸え", Center(label));
+            DrawHowTo(w, h * 0.38f);
+            if (best > 0f) GUI.Label(new Rect(0, h * 0.38f + HowToLines.Length * 30 + 20, w, 30), "ベスト  " + Mathf.FloorToInt(best), Center(label));
+            float blink = 0.6f + 0.4f * Mathf.Sin(Time.unscaledTime * 3f);
+            var old = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, blink);
+            GUI.Label(new Rect(0, h * 0.88f, w, 40), "クリックではじめる", Center(label));
+            GUI.color = old;
+        }
+
+        void DrawPause(float w, float h)
+        {
+            Rect(new Rect(0, 0, w, h), new Color(0f, 0f, 0f, 0.7f));
+            GUI.Label(new Rect(0, h * 0.08f, w, 80), "ポーズ中", big);
+            DrawHowTo(w, h * 0.30f);
+            GUI.Label(new Rect(0, h * 0.82f, w, 36), "クリックで再開　　R でやり直し", Center(label));
         }
 
         // ---- 演出 ----

@@ -13,6 +13,17 @@ namespace MosquitoGame.Tests
         }
 
         [Test]
+        public void RiskierParts_EarnMoreBeforeBeingFound()
+        {
+            // 見つかるまでの時間 ≒ 100 ÷ （かゆみ ＋ 羽音）。危ない部位ほど「見つかるまでに稼げる点」が大きいこと
+            float Earn(PartType p, float noise) => 100f / (StealthRules.Itch(p) + noise) * StealthRules.SuckPoints(p);
+            float ankle = Earn(PartType.Ankle, 0f), arm = Earn(PartType.Arm, 1f), neck = Earn(PartType.Neck, 2.5f), face = Earn(PartType.Face, 3f);
+            Assert.Less(ankle, arm);
+            Assert.Less(arm, neck);
+            Assert.Less(neck, face);
+        }
+
+        [Test]
         public void Itch_IsFasterForRiskierParts()
         {
             Assert.Less(StealthRules.Itch(PartType.Ankle), StealthRules.Itch(PartType.Arm));
