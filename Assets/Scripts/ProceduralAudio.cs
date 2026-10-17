@@ -81,6 +81,20 @@ namespace MosquitoGame
             });
         }
 
+        /// <summary>クリアのファンファーレ（ド・ミ・ソ・高いド）。</summary>
+        public static AudioClip Clear()
+        {
+            float[] notes = { 523.25f, 659.25f, 783.99f, 1046.5f };
+            return Make("Clear", 1.2f, (i, t) =>
+            {
+                int k = Mathf.Min(3, (int)(t / 0.2f));
+                float local = t - k * 0.2f;
+                float env = Mathf.Exp(-local * (k == 3 ? 2.5f : 6f)) * Mathf.Clamp01(local * 300f);
+                float f = notes[k];
+                return (Mathf.Sin(2f * Mathf.PI * f * t) * 0.6f + Mathf.Sin(2f * Mathf.PI * f * 2f * t) * 0.2f) * env * 0.5f;
+            });
+        }
+
         /// <summary>寝息（ゆっくりふくらむ低いノイズ）。ループ。</summary>
         public static AudioClip Breath()
         {

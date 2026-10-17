@@ -46,9 +46,7 @@ namespace MosquitoGame
         public int Streak => streak;
         public Vector3 Velocity => velocity;
         public float SessionPoints { get; private set; }   // いまの吸血で稼いでいる点（離れるとリセット）
-        public float Blood01 { get; private set; }         // お腹の血の量 0〜1
-
-        const float BloodPerPoint = 1f / 400f;
+        public float Blood01 { get; private set; }         // 血のメーター 0〜1（吸った点の合計 ÷ BloodGoal。減らない。1 でクリア）
         Renderer bellyRenderer;
         Vector3 bellyBaseScale;
         static readonly Color BellyEmpty = new Color(0.16f, 0.12f, 0.12f), BellyFull = new Color(0.75f, 0.05f, 0.08f);
@@ -129,9 +127,11 @@ namespace MosquitoGame
                 move = Vector3.zero; suckHeld = false; dashPressed = false;
                 return;
             }
-            move = new Vector3(Axis(KeyCode.D, KeyCode.A), Axis(KeyCode.Space, KeyCode.LeftShift), Axis(KeyCode.W, KeyCode.S));
+            // 上昇 Space／下降 Ctrl／回避ダッシュ Shift または右クリック
+            float down = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl) ? 1f : 0f;
+            move = new Vector3(Axis(KeyCode.D, KeyCode.A), (Input.GetKey(KeyCode.Space) ? 1f : 0f) - down, Axis(KeyCode.W, KeyCode.S));
             suckHeld = Input.GetMouseButton(0);
-            dashPressed = Input.GetMouseButtonDown(1);
+            dashPressed = Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift);
         }
 
         static float Axis(KeyCode plus, KeyCode minus)
@@ -263,7 +263,8 @@ namespace MosquitoGame
             var gm = GameManager.Instance;
             if (gm != null) gm.AddScore(rate * dt);
             SessionPoints += rate * dt;
-            Blood01 = Mathf.Min(1f, Blood01 + rate * dt * BloodPerPoint);
+            Blood01 = Mathf.Min(1f, Blood01 + rate * dt / StealthRules.BloodGoal);
+            if (Blood01 >= 1f && gm != null) gm.Clear();   // お腹いっぱい＝クリア
             if (human != null) human.ItchRate = StealthRules.Itch(part.type) * StealthRules.RepeatMultiplier(streak);
         }
 
@@ -279,7 +280,6 @@ namespace MosquitoGame
         void AnimateBelly()
         {
             if (belly == null) return;
-            if (CurrentMode != Mode.Sucking) Blood01 = Mathf.Max(0f, Blood01 - 0.01f * Time.deltaTime);   // ゆっくり消化
             belly.localScale = new Vector3(bellyBaseScale.x * (1f + 0.5f * Blood01), bellyBaseScale.y * (1f + 0.6f * Blood01), bellyBaseScale.z * (1f + 0.5f * Blood01));
             if (bellyRenderer != null) bellyRenderer.material.color = Color.Lerp(BellyEmpty, BellyFull, Mathf.Clamp01(Blood01 * 1.5f));
         }

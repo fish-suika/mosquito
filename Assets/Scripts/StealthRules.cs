@@ -14,6 +14,9 @@ namespace MosquitoGame
         public const float NoiseRange = 7f;           // 羽音が届く距離
         public const float EscapeSeconds = 5f;        // 攻撃中に視界の外にいればこの秒数で逃げ切り
         public const float AfterEscapeAwareness = 40f;
+        /// <summary>吸った点の合計がこれに届くと血のメーターが満タン＝お腹いっぱいでクリア。
+        /// 1回の吸血で稼げる最大（顔の約420点）より大きく、危ない部位を何度か吸う必要がある。</summary>
+        public const float BloodGoal = 1000f;
 
         public static float SuckPoints(PartType t)
         {

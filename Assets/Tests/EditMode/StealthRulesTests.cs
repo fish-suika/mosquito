@@ -24,6 +24,15 @@ namespace MosquitoGame.Tests
         }
 
         [Test]
+        public void BloodGoal_NeedsSeveralVisits_ButIsReachable()
+        {
+            // 顔を1回吸い切ってもクリアできず（1回で稼げる最大より大きい）、数回で届く（4回以内）こと
+            float faceVisit = 100f / (StealthRules.Itch(PartType.Face) + 3f) * StealthRules.SuckPoints(PartType.Face);
+            Assert.Greater(StealthRules.BloodGoal, faceVisit);
+            Assert.Less(StealthRules.BloodGoal, faceVisit * 4f);
+        }
+
+        [Test]
         public void Itch_IsFasterForRiskierParts()
         {
             Assert.Less(StealthRules.Itch(PartType.Ankle), StealthRules.Itch(PartType.Arm));
